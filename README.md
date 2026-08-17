@@ -13,6 +13,7 @@ Ein eigenständiges, Teensy-4.1-basiertes Gerät für forensische Begleitprotoko
 - [USB-Hub-Triage & Anomalieerkennung](#usb-hub-triage--anomalieerkennung)
 - [Bedienung ohne Netzwerk-Infrastruktur](#bedienung-ohne-netzwerk-infrastruktur)
 - [Hardware](#hardware)
+- [Firmware](#firmware)
 - [Log-Format](#log-format)
 - [Kryptografie & Zeit](#kryptografie--zeit)
 - [Datenschutz & Aufbewahrung](#datenschutz--aufbewahrung)
@@ -147,6 +148,43 @@ Das Known-Device-Register liegt lokal auf der SD-Karte als einfache Datei und wi
 | Status-Display | Sitzungsstatus ohne Laptop einsehbar | kleines OLED (SSD1306) |
 
 *Aufbaufotos folgen, sobald die Hardware real existiert.*
+
+## Firmware
+
+PlatformIO-Projekt für Teensy 4.1. Aktueller Stand deckt Roadmap-Schritt 1 ab: Sitzungssteuerung, Hash-Chain, SD-Schreibpfad.
+
+```
+platformio.ini
+src/
+  main.cpp              Serielle Kommandozeile, verdrahtet die Module
+lib/
+  SessionController/     Sitzungszustand (offen/geschlossen, Fall-/Prüfer-ID)
+  ChainLog/               SHA-256-Hash-Chain, schreibt JSONL auf die SD-Karte
+  TimeSource/             Zeitquelle (aktuell: gepufferte RTC)
+```
+
+Bauen und flashen:
+
+```sh
+pio run -t upload
+pio device monitor
+```
+
+Kommandos über die serielle Konsole (115200 Baud) — als Platzhalter für den späteren USB-Host-Barcode-Scanner:
+
+| Befehl | Wirkung |
+|---|---|
+| `OPEN <case_id> <examiner_id>` | Sitzung eröffnen, Log-Datei `/cases/<case_id>.jsonl` anlegen |
+| `HASH <sha256> <artefakt>` | Ergebnis-Hash als `hash_ingest`-Ereignis anhängen |
+| `NOTE <text>` | Freitext-Ereignis anhängen |
+| `CLOSE` | Sitzung beenden |
+| `STATUS` | aktuellen Zustand, Sequenznummer und letzten Hash anzeigen |
+
+**Bewusste Einschränkungen des Grundgerüsts**, damit Doku und Code nicht auseinanderlaufen:
+
+- `time_source` steht auf `rtc_local` — die gepufferte RTC ist *keine* manipulationsresistente Quelle. Erst nach GPS/PPS-Integration (Roadmap Schritt 2) wechselt das Feld auf `gps_pps`.
+- `sig_ecdsa_p256` ist `null`. Ohne verbautes Secure Element gibt es noch keine Signatur — der Platz im Log-Format ist vorbereitet, wird aber nicht vorgetäuscht (Roadmap Schritt 3).
+- Eingabe läuft über die serielle Konsole, nicht über den USB-Host-Barcode-Scanner aus der Stückliste.
 
 ## Log-Format
 
