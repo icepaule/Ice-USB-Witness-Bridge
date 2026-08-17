@@ -21,6 +21,8 @@ void printHelp() {
   Serial.println(F("  NOTE <text>                    Freitext-Ereignis anhaengen"));
   Serial.println(F("  CLOSE                          Sitzung beenden"));
   Serial.println(F("  STATUS                         aktuellen Zustand anzeigen"));
+  Serial.println(F("  LIST                           Fall-Log-Dateien auf der SD-Karte auflisten"));
+  Serial.println(F("  DUMP <case_id>                 Log-Datei eines Falls ausgeben"));
   Serial.println(F("  HELP                           diese Uebersicht"));
 }
 
@@ -46,8 +48,12 @@ void handleCommand(const String &line) {
 
     session.open(caseId, examinerId);
     chainLog.begin(caseId);
-    chainLog.append("session_open", "{}", timeSource.nowIso8601Utc(),
-                     timeSource.sourceLabel(), caseId, examinerId);
+    if (!chainLog.append("session_open", "{}", timeSource.nowIso8601Utc(),
+                          timeSource.sourceLabel(), caseId, examinerId)) {
+      session.close();
+      Serial.println(F("[FEHLER] Konnte session_open nicht auf SD schreiben -- Sitzung nicht eroeffnet."));
+      return;
+    }
     Serial.print(F("[OK] Sitzung eroeffnet: "));
     Serial.println(caseId);
 
@@ -60,8 +66,11 @@ void handleCommand(const String &line) {
     String hash = sp2 == -1 ? rest : rest.substring(0, sp2);
     String artifact = sp2 == -1 ? "" : rest.substring(sp2 + 1);
     String detail = "{\"sha256\":\"" + hash + "\",\"artifact\":\"" + artifact + "\"}";
-    chainLog.append("hash_ingest", detail, timeSource.nowIso8601Utc(),
-                     timeSource.sourceLabel(), session.caseId(), session.examinerId());
+    if (!chainLog.append("hash_ingest", detail, timeSource.nowIso8601Utc(),
+                          timeSource.sourceLabel(), session.caseId(), session.examinerId())) {
+      Serial.println(F("[FEHLER] SD-Schreibvorgang fehlgeschlagen -- Hash NICHT gesichert."));
+      return;
+    }
     Serial.println(F("[OK] Hash erfasst."));
 
   } else if (cmd == "NOTE") {
@@ -72,8 +81,11 @@ void handleCommand(const String &line) {
     String escaped = rest;
     escaped.replace("\"", "'");
     String detail = "{\"text\":\"" + escaped + "\"}";
-    chainLog.append("examiner_note", detail, timeSource.nowIso8601Utc(),
-                     timeSource.sourceLabel(), session.caseId(), session.examinerId());
+    if (!chainLog.append("examiner_note", detail, timeSource.nowIso8601Utc(),
+                          timeSource.sourceLabel(), session.caseId(), session.examinerId())) {
+      Serial.println(F("[FEHLER] SD-Schreibvorgang fehlgeschlagen -- Notiz NICHT gesichert."));
+      return;
+    }
     Serial.println(F("[OK] Notiz angehaengt."));
 
   } else if (cmd == "CLOSE") {
@@ -81,9 +93,13 @@ void handleCommand(const String &line) {
       Serial.println(F("[FEHLER] Keine offene Sitzung."));
       return;
     }
-    chainLog.append("session_close", "{}", timeSource.nowIso8601Utc(),
-                     timeSource.sourceLabel(), session.caseId(), session.examinerId());
+    bool ok = chainLog.append("session_close", "{}", timeSource.nowIso8601Utc(),
+                               timeSource.sourceLabel(), session.caseId(), session.examinerId());
     session.close();
+    if (!ok) {
+      Serial.println(F("[FEHLER] session_close nicht auf SD geschrieben -- Kette unvollstaendig! Sitzungszustand trotzdem zurueckgesetzt."));
+      return;
+    }
     Serial.println(F("[OK] Sitzung geschlossen."));
 
   } else if (cmd == "STATUS") {
@@ -99,6 +115,46 @@ void handleCommand(const String &line) {
       Serial.print(F("  Letzter Hash: "));
       Serial.println(chainLog.lastHashHex());
     }
+
+  } else if (cmd == "LIST") {
+    File dir = SD.open("/cases");
+    if (!dir) {
+      Serial.println(F("[FEHLER] Verzeichnis /cases nicht vorhanden."));
+      return;
+    }
+    File entry = dir.openNextFile();
+    bool any = false;
+    while (entry) {
+      Serial.print(F("  "));
+      Serial.print(entry.name());
+      Serial.print(F("  ("));
+      Serial.print(entry.size());
+      Serial.println(F(" Bytes)"));
+      any = true;
+      entry.close();
+      entry = dir.openNextFile();
+    }
+    dir.close();
+    if (!any) Serial.println(F("  (leer)"));
+
+  } else if (cmd == "DUMP") {
+    String caseId = rest;
+    caseId.trim();
+    if (caseId.length() == 0) {
+      Serial.println(F("Nutzung: DUMP <case_id>"));
+      return;
+    }
+    String path = "/cases/" + caseId + ".jsonl";
+    File f = SD.open(path.c_str(), FILE_READ);
+    if (!f) {
+      Serial.print(F("[FEHLER] Nicht gefunden: "));
+      Serial.println(path);
+      return;
+    }
+    while (f.available()) {
+      Serial.write(f.read());
+    }
+    f.close();
 
   } else if (cmd == "HELP") {
     printHelp();
