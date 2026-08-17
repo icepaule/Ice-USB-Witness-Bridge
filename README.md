@@ -2,7 +2,7 @@
 
 Ein eigenständiges, Teensy-4.1-basiertes Gerät für forensische Begleitprotokollierung und USB-Geräte-Triage — unabhängig, manipulationssicher und ohne Abhängigkeit von einem Heim- oder Firmennetz.
 
-> **Status:** Konzeptphase. Noch keine Hardware aufgebaut, noch keine Firmware geschrieben. Dieses Dokument beschreibt das Design als Ausgangspunkt für die Umsetzung.
+> **Status:** Firmware-Grundgerüst läuft auf echter Teensy-4.1-Hardware (Sitzungssteuerung, Hash-Chain, SD-Log, verifiziert). GPS/PPS, Secure Element und die USB-Hub-Triage sind noch nicht umgesetzt.
 
 ## Inhalt
 
@@ -14,6 +14,7 @@ Ein eigenständiges, Teensy-4.1-basiertes Gerät für forensische Begleitprotoko
 - [Bedienung ohne Netzwerk-Infrastruktur](#bedienung-ohne-netzwerk-infrastruktur)
 - [Hardware](#hardware)
 - [Firmware](#firmware)
+- [Labor-Modus](#labor-modus)
 - [Log-Format](#log-format)
 - [Kryptografie & Zeit](#kryptografie--zeit)
 - [Datenschutz & Aufbewahrung](#datenschutz--aufbewahrung)
@@ -146,6 +147,7 @@ Das Known-Device-Register liegt lokal auf der SD-Karte als einfache Datei und wi
 | Tamper-evident-Gehäuse | Physischer Schutz, verplombbar | verplombtes Gehäuse + Sabotageschalter |
 | Sabotageschalter | Log-Eintrag bei Gehäuseöffnung | Mikroschalter an GPIO, Dauerstrom-Pufferung |
 | Status-Display | Sitzungsstatus ohne Laptop einsehbar | kleines OLED (SSD1306) |
+| PJRC-Ethernet-Kit (RJ45-Magjack) | nativer Ethernet-Port, nur für den Labor-Modus | wird unterseitig aufgelötet, in der Basisbestückung nicht enthalten |
 
 *Aufbaufotos folgen, sobald die Hardware real existiert.*
 
@@ -182,9 +184,40 @@ Kommandos über die serielle Konsole (115200 Baud) — als Platzhalter für den 
 
 **Bewusste Einschränkungen des Grundgerüsts**, damit Doku und Code nicht auseinanderlaufen:
 
-- `time_source` steht auf `rtc_local` — die gepufferte RTC ist *keine* manipulationsresistente Quelle. Erst nach GPS/PPS-Integration (Roadmap Schritt 2) wechselt das Feld auf `gps_pps`.
+- `time_source` steht standardmäßig auf `rtc_local` — die gepufferte RTC ist *keine* manipulationsresistente Quelle. Im Labor-Modus wechselt das Feld nach `NTPSYNC` auf `ntp_lab` (kalibriert, aber weiterhin nicht unabhängig verifiziert). Erst nach GPS/PPS-Integration (Roadmap Schritt 2) wechselt es auf `gps_pps`.
 - `sig_ecdsa_p256` ist `null`. Ohne verbautes Secure Element gibt es noch keine Signatur — der Platz im Log-Format ist vorbereitet, wird aber nicht vorgetäuscht (Roadmap Schritt 3).
 - Eingabe läuft über die serielle Konsole, nicht über den USB-Host-Barcode-Scanner aus der Stückliste.
+
+## Labor-Modus
+
+Zweite PlatformIO-Umgebung, `env:teensy41_lab`, statt eines Laufzeit-Schalters — bewusst als eigene Firmware-Variante, damit während einer echten Sitzung nie versehentlich ein Netzwerkstack aktiv sein kann. Wer die Feld-Firmware (`env:teensy41`) flasht, bekommt gar keinen Netzwerkcode mit einkompiliert.
+
+Ergänzt gegenüber dem Grundgerüst:
+
+- **Nativer Ethernet-Port** (QNEthernet, DHCP) — braucht das PJRC-Ethernet-Kit, siehe Hardware-Tabelle.
+- **Minimaler SNTP-Client** über `NTPSYNC <server_ip>` — stellt die RTC einmalig anhand einer beliebigen NTP-Server-IP. Bewusst keine hinterlegte Standardadresse: die passende Quelle (z. B. eine interne NTP-IP, falls das Zielnetz externes NTP blockiert) wird beim Aufruf mitgegeben, nicht im Repo hinterlegt.
+- **Rein lesender Status-Webserver** auf Port 80 — nur `GET`, keine schreibenden Endpunkte:
+  - `/` — HTML-Übersicht mit Links auf alle Fall-Log-Dateien
+  - `/status` — aktueller Sitzungsstatus als JSON
+  - `/cases/<case_id>.jsonl` — Rohdaten einer Log-Datei
+
+Bauen/flashen/beobachten:
+
+```sh
+pio run -e teensy41_lab -t upload
+pio device monitor
+```
+
+Danach über die serielle Konsole:
+
+```
+NTPSYNC 10.0.0.1
+NETINFO
+```
+
+`NETINFO` zeigt Link-Status und IP. Ohne Ethernet-Kit oder ohne Kabel bleibt der Link `getrennt` und die IP `0.0.0.0` — das ist der erwartete, sichere Ausfallzustand, kein Fehler in der Firmware.
+
+> **Nicht für den Einsatz.** Der Labor-Modus ist ausschließlich für Werkbank, Kalibrierung und Entwicklung gedacht. Ein dauerhaft erreichbarer Webserver während einer echten Untersuchung widerspricht dem Air-Gap-Prinzip aus [Kryptografie & Zeit](#kryptografie--zeit) und vergrößert die Angriffsfläche unnötig. Für einen Fall wird ausschließlich `env:teensy41` geflasht.
 
 ## Log-Format
 
@@ -239,7 +272,8 @@ Die folgenden Punkte sind organisatorische Voraussetzungen, keine technischen �
 
 ## Roadmap
 
-1. Firmware-Grundgerüst: Sitzungssteuerung, Hash-Chain, SD-Schreibpfad
+1. Firmware-Grundgerüst: Sitzungssteuerung, Hash-Chain, SD-Schreibpfad — **erledigt**, verifiziert auf echter Hardware
+1b. Labor-Modus (Ethernet, NTP-Kalibrierung, Status-Webserver) als eigene Firmware-Variante — **erledigt**, End-to-End-Test mit echtem Netz steht noch aus (Ethernet-Kit fehlt bisher)
 2. GPS/PPS-Integration und Zeitquelle validieren
 3. Secure-Element-Anbindung und Signaturpfad testen
 4. USB-Netzwerk-Gadget (RNDIS/ECM) und eingebettetes Web-Interface

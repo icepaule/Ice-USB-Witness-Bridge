@@ -19,5 +19,12 @@ String TimeSource::nowIso8601Utc() const {
 
 const char *TimeSource::sourceLabel() const {
   // TODO (Roadmap Schritt 2): "gps_pps", sobald GPS/PPS verbaut und verifiziert ist.
+  if (_ntpSynced) return "ntp_lab";
   return "rtc_local";
+}
+
+void TimeSource::setEpoch(unsigned long epochUtc) {
+  Teensy3Clock.set(epochUtc);
+  setTime((time_t)epochUtc);
+  _ntpSynced = true;
 }

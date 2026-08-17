@@ -4,14 +4,24 @@
 #include "SessionController.h"
 #include "ChainLog.h"
 #include "TimeSource.h"
+#ifdef LAB_MODE
+#include "LabNetwork.h"
+#endif
 
 // Firmware-Grundgeruest (Roadmap Schritt 1): Sitzungssteuerung, Hash-Chain,
 // SD-Schreibpfad. Eingabe aktuell ueber die serielle Konsole als Platzhalter
 // fuer den spaeteren USB-Host-Barcode-Scanner (siehe README, Hardware).
+//
+// LAB_MODE (env:teensy41_lab) ergaenzt Ethernet, NTP-Client und einen
+// rein lesenden Status-Webserver -- nur fuer Werkbank/Kalibrierung,
+// siehe README, "Labor-Modus".
 
 SessionController session;
 ChainLog chainLog;
 TimeSource timeSource;
+#ifdef LAB_MODE
+LabNetwork labNetwork;
+#endif
 
 void printHelp() {
   Serial.println(F("Witness Bridge -- Firmware-Grundgeruest"));
@@ -23,6 +33,10 @@ void printHelp() {
   Serial.println(F("  STATUS                         aktuellen Zustand anzeigen"));
   Serial.println(F("  LIST                           Fall-Log-Dateien auf der SD-Karte auflisten"));
   Serial.println(F("  DUMP <case_id>                 Log-Datei eines Falls ausgeben"));
+#ifdef LAB_MODE
+  Serial.println(F("  NTPSYNC <server_ip>            RTC per NTP stellen (Labor-Modus)"));
+  Serial.println(F("  NETINFO                        Ethernet-Status/IP anzeigen (Labor-Modus)"));
+#endif
   Serial.println(F("  HELP                           diese Uebersicht"));
 }
 
@@ -156,6 +170,23 @@ void handleCommand(const String &line) {
     }
     f.close();
 
+#ifdef LAB_MODE
+  } else if (cmd == "NTPSYNC") {
+    String serverIp = rest;
+    serverIp.trim();
+    if (serverIp.length() == 0) {
+      Serial.println(F("Nutzung: NTPSYNC <server_ip>"));
+      return;
+    }
+    labNetwork.ntpSync(serverIp.c_str(), timeSource);
+
+  } else if (cmd == "NETINFO") {
+    Serial.print(F("Link: "));
+    Serial.println(labNetwork.isLinked() ? "verbunden" : "getrennt");
+    Serial.print(F("IP: "));
+    Serial.println(labNetwork.ipAddress());
+#endif
+
   } else if (cmd == "HELP") {
     printHelp();
 
@@ -173,6 +204,12 @@ void setup() {
   }
 
   timeSource.begin();
+
+#ifdef LAB_MODE
+  Serial.println(F("[Labor-Modus] Firmware-Variante -- NICHT fuer echte Sitzungen verwenden."));
+  labNetwork.begin();
+#endif
+
   printHelp();
 }
 
@@ -184,4 +221,8 @@ void loop() {
       handleCommand(line);
     }
   }
+
+#ifdef LAB_MODE
+  labNetwork.poll(session, chainLog, timeSource);
+#endif
 }
