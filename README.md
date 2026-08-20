@@ -195,10 +195,11 @@ Zweite PlatformIO-Umgebung, `env:teensy41_lab`, statt eines Laufzeit-Schalters �
 Ergänzt gegenüber dem Grundgerüst:
 
 - **Nativer Ethernet-Port** (QNEthernet, DHCP) — braucht das PJRC-Ethernet-Kit, siehe Hardware-Tabelle.
-- **Minimaler SNTP-Client** über `NTPSYNC <server_ip>` — stellt die RTC einmalig anhand einer beliebigen NTP-Server-IP. Bewusst keine hinterlegte Standardadresse: die passende Quelle (z. B. eine interne NTP-IP, falls das Zielnetz externes NTP blockiert) wird beim Aufruf mitgegeben, nicht im Repo hinterlegt.
+- **Automatischer NTP-Abgleich beim Boot**: sobald DHCP eine IP liefert, stellt die Firmware die RTC selbstständig gegen das per DHCP gelernte Default-Gateway (die meisten Router/pfSense-Setups beantworten NTP-Anfragen). Damit ist der Werkbank-Betrieb komplett seriell-frei möglich — kein USB-Kabel nötig, nur Strom + Ethernet.
+- **Manueller SNTP-Client** weiterhin über `NTPSYNC <server_ip>` erreichbar — z. B. um gegen eine andere Quelle zu resynchronisieren (etwa eine interne NTP-IP, falls das Zielnetz externes NTP blockiert).
 - **Rein lesender Status-Webserver** auf Port 80 — nur `GET`, keine schreibenden Endpunkte:
   - `/` — HTML-Übersicht mit Links auf alle Fall-Log-Dateien
-  - `/status` — aktueller Sitzungsstatus als JSON
+  - `/status` — aktueller Sitzungsstatus als JSON, inkl. `link`, `ip`, `gateway`, `time_source`, `now_utc`
   - `/cases/<case_id>.jsonl` — Rohdaten einer Log-Datei
 
 Bauen/flashen/beobachten:
@@ -208,14 +209,13 @@ pio run -e teensy41_lab -t upload
 pio device monitor
 ```
 
-Danach über die serielle Konsole:
+Danach entweder über die serielle Konsole (`NETINFO`, `NTPSYNC <ip>`) oder rein über das Netz:
 
-```
-NTPSYNC 10.0.0.1
-NETINFO
+```sh
+curl http://<teensy-ip>/status
 ```
 
-`NETINFO` zeigt Link-Status und IP. Ohne Ethernet-Kit oder ohne Kabel bleibt der Link `getrennt` und die IP `0.0.0.0` — das ist der erwartete, sichere Ausfallzustand, kein Fehler in der Firmware.
+Ohne Ethernet-Kit oder ohne Kabel bleibt der Link `getrennt` und die IP `0.0.0.0` — das ist der erwartete, sichere Ausfallzustand, kein Fehler in der Firmware. Schlägt der Auto-NTP-Abgleich fehl (z. B. Gateway beantwortet kein NTP), bleibt `time_source` auf `rtc_local` stehen; das ist über `/status` remote sichtbar, ganz ohne USB-Zugang.
 
 > **Nicht für den Einsatz.** Der Labor-Modus ist ausschließlich für Werkbank, Kalibrierung und Entwicklung gedacht. Ein dauerhaft erreichbarer Webserver während einer echten Untersuchung widerspricht dem Air-Gap-Prinzip aus [Kryptografie & Zeit](#kryptografie--zeit) und vergrößert die Angriffsfläche unnötig. Für einen Fall wird ausschließlich `env:teensy41` geflasht.
 

@@ -14,7 +14,7 @@ static String ipToString(const IPAddress &ip) {
   return String(ip[0]) + "." + String(ip[1]) + "." + String(ip[2]) + "." + String(ip[3]);
 }
 
-void LabNetwork::begin() {
+void LabNetwork::begin(TimeSource &timeSource) {
   Serial.println(F("[Labor-Modus] Starte Ethernet (DHCP)..."));
   Ethernet.begin();
 
@@ -33,6 +33,16 @@ void LabNetwork::begin() {
 
   httpServer.begin();
   ntpUdp.begin(2390);
+
+  // Seriell-freier Betrieb: RTC automatisch gegen das Gateway abgleichen.
+  // Ergebnis (Erfolg/Fehlschlag) ist ueber GET /status (Feld "time_source")
+  // nachvollziehbar, auch ohne USB-Verbindung.
+  String gw = gatewayIp();
+  Serial.print(F("[Labor-Modus] Auto-NTP-Abgleich gegen Gateway "));
+  Serial.println(gw);
+  if (!ntpSync(gw.c_str(), timeSource)) {
+    Serial.println(F("[Labor-Modus][FEHLER] Auto-NTP-Abgleich fehlgeschlagen -- RTC bleibt unkalibriert (rtc_local)."));
+  }
 }
 
 bool LabNetwork::isLinked() const {
@@ -41,6 +51,10 @@ bool LabNetwork::isLinked() const {
 
 String LabNetwork::ipAddress() const {
   return ipToString(Ethernet.localIP());
+}
+
+String LabNetwork::gatewayIp() const {
+  return ipToString(Ethernet.gatewayIP());
 }
 
 // Minimaler SNTP-Client (RFC 4330): sendet ein NTP-Request-Paket und liest
@@ -94,6 +108,9 @@ static void sendStatusJson(EthernetClient &client, SessionController &session,
                             ChainLog &chainLog, TimeSource &timeSource) {
   StaticJsonDocument<384> doc;
   doc["mode"] = "lab";
+  doc["link"] = Ethernet.linkState();
+  doc["ip"] = ipToString(Ethernet.localIP());
+  doc["gateway"] = ipToString(Ethernet.gatewayIP());
   doc["session_open"] = session.isOpen();
   if (session.isOpen()) {
     doc["case_id"] = session.caseId();

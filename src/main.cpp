@@ -207,7 +207,7 @@ void setup() {
 
 #ifdef LAB_MODE
   Serial.println(F("[Labor-Modus] Firmware-Variante -- NICHT fuer echte Sitzungen verwenden."));
-  labNetwork.begin();
+  labNetwork.begin(timeSource);
 #endif
 
   printHelp();
